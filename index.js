@@ -112,7 +112,7 @@ const typeDefs = gql`
     allAuthors:[AuthorAndBookCount!]!
     authorCount:Int!
 
-    allBooks(author:String):[Book]!
+    allBooks(author:String,genre:String):[Book]!
     bookCount(author:String):Int!
 
   }
@@ -139,11 +139,18 @@ const resolvers = {
       return books.length
     },
     allBooks: (root,args) => {
+      let filteredBooks = books
       if(args.author) {
-        const groupedBooks = _.groupBy(books,'author')
-        return groupedBooks[args.author]
+        const groupedBooks = _.groupBy(filteredBooks,'author')
+        filteredBooks = groupedBooks[args.author]
       }
-      return books
+      if(args.genre) {
+        const groupedBooks = _.groupBy(filteredBooks,book => {
+          return book.genres.includes(args.genre)
+        })
+        filteredBooks = groupedBooks[true]
+      }      
+      return filteredBooks
     }
   }
 }
