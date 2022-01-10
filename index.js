@@ -123,6 +123,7 @@ const typeDefs = gql`
       name:String!,
       setBornTo:Int!
     ):Author
+
   }
 `
 
