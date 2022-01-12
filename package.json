@@ -12,8 +12,10 @@
   "dependencies": {
     "apollo-server": "^3.6.1",
     "apollo-server-core": "^3.6.1",
+    "dotenv": "^11.0.0",
     "graphql": "^16.2.0",
     "lodash": "^4.17.21",
+    "mongoose": "^6.1.6",
     "nodemon": "^2.0.15"
   }
 }

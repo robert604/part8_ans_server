@@ -1,6 +1,23 @@
+
 const { ApolloServer, gql } = require('apollo-server')
 const { v1 } = require('uuid')
 const _ = require('lodash')
+
+const mongoose = require('mongoose')
+const Author = require('./models/author')
+const Book = require('./models/book')
+
+const {MONGODB_URI} = require('./utils/config')
+
+console.log('connecting to',MONGODB_URI)
+
+mongoose.connect(MONGODB_URI)
+  .then(() => {
+    console.log('connected to MongoDB')
+  })
+  .catch((error) => {
+    console.log('error connecting to MongoDB:', error.message)
+  })
 
 let authors = [
   {
@@ -104,6 +121,7 @@ const typeDefs = gql`
     bookCount: Int
     id: ID!
   }
+
   type Query {
     allAuthors:[Author!]!
     authorCount:Int!
@@ -118,7 +136,7 @@ const typeDefs = gql`
       published:Int!,
       author:String!,
       genres:[String!]!
-    ):Book!
+    ):Book
     editAuthor(
       name:String!,
       setBornTo:Int!
@@ -129,26 +147,29 @@ const typeDefs = gql`
 
 const resolvers = {
   Query: {
-    authorCount: () => authors.length,
-    allAuthors: () => {
-      const a = [...authors]
-      const bookCounts = _.countBy(books,'author')
-      const authorsAndBookCounts = a.map(author => {
-        const ab = { ...author,bookCount:bookCounts[author.name] }
+    authorCount: () => Author.collection.countDocuments(),
+    allAuthors: async () => {
+      const authors = await Author.find({})
+      const books = await Book.find({})
+      const bookCounts = _.countBy(books,book => book.author.toString())
+      const authorsAndBookCounts = authors.map(author => {
+        author = author.toObject()    
+        const ab = { ...author,id:author._id.toString(),bookCount:bookCounts[author._id.toString()] || 0 }
         return ab
       })
       return authorsAndBookCounts
     },
-    bookCount: (root,args) => {
+    bookCount: async (root,args) => {
+      const books = await Book.find({})
       if(args.author) {
-        const counts = _.countBy(books,'author')
+        const counts = _.countBy(books,book => book.author.name)
         const count = counts[args.author] || 0
         return count
       }
       return books.length
     },
-    allBooks: (root,args) => {
-      let filteredBooks = books
+    allBooks: async (root,args) => {
+      let filteredBooks = await Book.find({})
       if(args.author) {
         const groupedBooks = _.groupBy(filteredBooks,'author')
         filteredBooks = groupedBooks[args.author]
@@ -163,25 +184,32 @@ const resolvers = {
     }
   },
   Mutation: {
-    addBook: (root,args) => {
-      const book = { ...args,id:v1()}
-      books = books.concat(book)
-      const authorNames = _.uniq(_.map(authors,'name'))
-      if(!authorNames.includes(args.author)) {
-        const newAuthor = {
+    addBook: async (root,args) => {
+      console.log('addbook',args)
+      let author = await Author.findOne({name:args.author})
+      console.log('looked for author',author)
+      if(!author) {
+        console.log('making author')
+        author = new Author({
           name: args.author,
-          born: null,
-          id: v1()
-        }
-        authors = authors.concat(newAuthor)
+          born: null          
+        })
+        await author.save()
       }
-      return book
+      const bookdata = {...args,author:author._id}
+      console.log('bookdata',bookdata)
+      const book = new Book(bookdata)
+      const savedBook = await book.save()
+      console.log(' savedBook',savedBook)
+      return savedBook
     },
-    editAuthor: (root,args) => {
-      const author = authors.find(author => author.name===args.name)
+    editAuthor: async (root,args) => {
+      console.log('editauthor')
+      const author = await Author.findOne({name:args.name})      
       if(author) {
-        author.born = args.setBornTo
-        return author
+        const changedAuthor = { ...author,born:args.setBornTo }
+        await changedAuthor.save()
+        return changedAuthor
       }
       return null
     }
