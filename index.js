@@ -1,5 +1,5 @@
 
-const { ApolloServer, gql } = require('apollo-server')
+const { ApolloServer,UserInputError, gql } = require('apollo-server')
 const { v1 } = require('uuid')
 const _ = require('lodash')
 
@@ -145,6 +145,16 @@ const typeDefs = gql`
 
   }
 `
+/*
+    addBook(
+      title:String!,
+      published:Int!,
+      author:String!,
+      genres:[String!]!
+    ):Book
+*/
+
+
 const popBookAuthor = async (book) => {
   await book.populate('author')
   if(!book.author) book.author = {id:'unknown_id',name:'unknown',born:0}
@@ -202,18 +212,37 @@ const resolvers = {
           name: args.author,
           born: null          
         })
-        await author.save()
+        try {
+          await author.save()
+        } catch(error) {
+          throw new UserInputError(error.message,{
+            invalidArgs: args
+          })
+        }
       }
       const bookdata = {...args,author:author._id}
       const book = new Book(bookdata)
-      const savedBook = await book.save()
-      return savedBook
+      try {
+        const savedBook = await book.save()
+        await popBookAuthor(savedBook)
+        return savedBook        
+      } catch(error) {
+        throw new UserInputError(error.message,{
+          invalidArgs:args
+        })
+      }
     },
     editAuthor: async (root,args) => {
       let author = await Author.findOne({name:args.name})      
       if(author) {
-        author.born = args.setBornTo
-        author.save()
+        try {        
+          author.born = args.setBornTo
+          author.save()
+        } catch(error) {
+          throw new UserInputError(error.message,{
+            invalidArgs:args
+          })
+        }
         return author
       }
       return null
