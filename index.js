@@ -8,6 +8,7 @@ const Author = require('./models/author')
 const Book = require('./models/book')
 
 const {MONGODB_URI} = require('./utils/config')
+const { filter } = require('lodash')
 
 console.log('connecting to',MONGODB_URI)
 
@@ -111,7 +112,7 @@ const typeDefs = gql`
   type Book {
     title: String!
     published: Int!
-    author: String!
+    author: Author
     genres: [String!]!
     id: ID!
   }
@@ -144,6 +145,11 @@ const typeDefs = gql`
 
   }
 `
+const popBookAuthor = async (book) => {
+  await book.populate('author')
+  if(!book.author) book.author = {id:'unknown_id',name:'unknown',born:0}
+}
+
 
 const resolvers = {
   Query: {
@@ -159,37 +165,39 @@ const resolvers = {
       })
       return authorsAndBookCounts
     },
-    bookCount: async (root,args) => {
-      const books = await Book.find({})
+    /*bookCount: async (root,args) => {
+      const filter = {}
       if(args.author) {
-        const counts = _.countBy(books,book => book.author.name)
-        const count = counts[args.author] || 0
-        return count
+        const author = await Author.findOne({name:args.author})
+        if(!author) return 0
+        filter.author = author._id
       }
-      return books.length
-    },
+      const count = Book.count(filter)
+      return count
+    },*/
     allBooks: async (root,args) => {
       let filteredBooks = await Book.find({})
       if(args.author) {
-        const groupedBooks = _.groupBy(filteredBooks,'author')
-        filteredBooks = groupedBooks[args.author]
+        const author = await Author.findOne({name:args.author})
+        if(author) {
+          filteredBooks = _.filter(filteredBooks,{author:author._id})
+        } else {
+          filteredBooks = []
+        }
       }
       if(args.genre) {
-        const groupedBooks = _.groupBy(filteredBooks,book => {
+        filteredBooks = _.filter(filteredBooks,book => {
           return book.genres.includes(args.genre)
         })
-        filteredBooks = groupedBooks[true]
-      }      
+      }
+      for(fb of filteredBooks) await popBookAuthor(fb)     
       return filteredBooks
     }
   },
   Mutation: {
     addBook: async (root,args) => {
-      console.log('addbook',args)
       let author = await Author.findOne({name:args.author})
-      console.log('looked for author',author)
       if(!author) {
-        console.log('making author')
         author = new Author({
           name: args.author,
           born: null          
@@ -197,19 +205,16 @@ const resolvers = {
         await author.save()
       }
       const bookdata = {...args,author:author._id}
-      console.log('bookdata',bookdata)
       const book = new Book(bookdata)
       const savedBook = await book.save()
-      console.log(' savedBook',savedBook)
       return savedBook
     },
     editAuthor: async (root,args) => {
-      console.log('editauthor')
-      const author = await Author.findOne({name:args.name})      
+      let author = await Author.findOne({name:args.name})      
       if(author) {
-        const changedAuthor = { ...author,born:args.setBornTo }
-        await changedAuthor.save()
-        return changedAuthor
+        author.born = args.setBornTo
+        author.save()
+        return author
       }
       return null
     }
