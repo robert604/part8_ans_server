@@ -1,14 +1,18 @@
 
-const { ApolloServer,UserInputError, gql } = require('apollo-server')
+const { ApolloServer,UserInputError,AuthenticationError, gql } = require('apollo-server')
 const { v1 } = require('uuid')
 const _ = require('lodash')
 
 const mongoose = require('mongoose')
 const Author = require('./models/author')
 const Book = require('./models/book')
+const User = require('./models/user')
+const Token = require('./models/token')
 
 const {MONGODB_URI} = require('./utils/config')
 const { filter } = require('lodash')
+const jwt = require('jsonwebtoken')
+const JWT_SECRET = 'secret key'
 
 console.log('connecting to',MONGODB_URI)
 
@@ -123,12 +127,24 @@ const typeDefs = gql`
     id: ID!
   }
 
+  type User {
+    username: String!
+    favoriteGenre: String!
+    id: ID!
+  }
+
+  type Token {
+    value: String!
+  }
+
   type Query {
     allAuthors:[Author!]!
     authorCount:Int!
 
     allBooks(author:String,genre:String):[Book]!
     bookCount(author:String):Int!
+
+    me:User
 
   }
   type Mutation {
@@ -142,6 +158,14 @@ const typeDefs = gql`
       name:String!,
       setBornTo:Int!
     ):Author
+    createUser(
+      username:String!
+      favoriteGenre:String!
+    ):User
+    login(
+      username:String!
+      password:String!
+    ):Token
 
   }
 `
@@ -173,6 +197,8 @@ const resolvers = {
         const ab = { ...author,id:author._id.toString(),bookCount:bookCounts[author._id.toString()] || 0 }
         return ab
       })
+      const users = await User.find({})
+      //console.log('users',users)
       return authorsAndBookCounts
     },
     /*bookCount: async (root,args) => {
@@ -202,10 +228,16 @@ const resolvers = {
       }
       for(fb of filteredBooks) await popBookAuthor(fb)     
       return filteredBooks
+    },
+    me: async (root,args,context) => {
+      return context.currentUser
     }
   },
   Mutation: {
-    addBook: async (root,args) => {
+    addBook: async (root,args,context) => {
+      if(!context.currentUser) {
+        throw new AuthenticationError('not authenticated')
+      }
       let author = await Author.findOne({name:args.author})
       if(!author) {
         author = new Author({
@@ -232,12 +264,15 @@ const resolvers = {
         })
       }
     },
-    editAuthor: async (root,args) => {
+    editAuthor: async (root,args,context) => {
+      if(!context.currentUser) {
+        throw new AuthenticationError('not authenticated')
+      }      
       let author = await Author.findOne({name:args.name})      
       if(author) {
         try {        
           author.born = args.setBornTo
-          author.save()
+          await author.save()
         } catch(error) {
           throw new UserInputError(error.message,{
             invalidArgs:args
@@ -246,13 +281,49 @@ const resolvers = {
         return author
       }
       return null
+    },
+    createUser: async (root,args) => {
+      console.log('createuser',args)
+      const user = new User(args)
+      try {
+        await user.save()
+      } catch(error) {
+        throw new UserInputError(error.message,{
+          invalidArgs:args
+        })
+      }
+      console.log('created user',user)
+      return user
+    },
+    login: async (root,args) => {
+      console.log('login',args)
+      const user = await User.findOne({username:args.username})
+      if(!user || args.password!=='secret') {
+        throw new UserInputError('wrong username or password')
+      }
+      const userForToken = {
+        username: user.username,
+        id: user._id
+      }
+      //console.log('userfortoken',userForToken)
+      return { value: jwt.sign(userForToken,JWT_SECRET)}
     }
+  }
+}
+
+const context = async ({req}) => {
+  const auth = req ? req.headers.authorization : null
+  if(auth && auth.toLowerCase().startsWith('bearer ')) {
+    const userForToken = jwt.verify(auth.substring(7), JWT_SECRET)
+    const currentUser = await (await User.findById(userForToken.id))
+    return { currentUser}
   }
 }
 
 const server = new ApolloServer({
   typeDefs,
   resolvers,
+  context
 })
 
 server.listen().then(({ url }) => {
