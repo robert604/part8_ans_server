@@ -14,6 +14,9 @@ const { filter } = require('lodash')
 const jwt = require('jsonwebtoken')
 const JWT_SECRET = 'secret key'
 
+const { PubSub } = require('graphql-subscriptions')
+const pubsub = new PubSub()
+
 console.log('connecting to',MONGODB_URI)
 
 mongoose.connect(MONGODB_URI)
@@ -166,17 +169,11 @@ const typeDefs = gql`
       username:String!
       password:String!
     ):Token
-
+  }
+  type Subscription {
+    bookAdded:Book!
   }
 `
-/*
-    addBook(
-      title:String!,
-      published:Int!,
-      author:String!,
-      genres:[String!]!
-    ):Book
-*/
 
 
 const popBookAuthor = async (book) => {
@@ -257,6 +254,7 @@ const resolvers = {
       try {
         const savedBook = await book.save()
         await popBookAuthor(savedBook)
+        pubsub.publish('BOOK_ADDED', { bookAdded: savedBook })        
         return savedBook        
       } catch(error) {
         throw new UserInputError(error.message,{
@@ -308,6 +306,11 @@ const resolvers = {
       //console.log('userfortoken',userForToken)
       return { value: jwt.sign(userForToken,JWT_SECRET)}
     }
+  },
+  Subscription: {
+    bookAdded: {
+      subscribe: () => pubsub.asyncIterator(['BOOK_ADDED'])
+    }
   }
 }
 
@@ -326,6 +329,7 @@ const server = new ApolloServer({
   context
 })
 
-server.listen().then(({ url }) => {
+server.listen().then(({ url,subscriptionsUrl }) => {
   console.log(`Server ready at: ${url}`)
+  console.log(`Subscriptions ready at ${subscriptionsUrl}`)
 })
