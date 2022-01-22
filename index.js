@@ -195,7 +195,6 @@ const resolvers = {
         return ab
       })
       const users = await User.find({})
-      //console.log('users',users)
       return authorsAndBookCounts
     },
     /*bookCount: async (root,args) => {
